@@ -17,6 +17,7 @@ import os
 import sys
 import logging
 import smtplib
+import html
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -74,7 +75,8 @@ class OSSUploader:
             'region_name': region
         }
         
-        if provider != 'aws' and endpoint:
+        # Allow custom endpoint for any provider (including AWS for MinIO, etc.)
+        if endpoint:
             config_kwargs['endpoint_url'] = endpoint
             logger.info(f"Using custom endpoint: {endpoint}")
         
@@ -351,7 +353,9 @@ Upload Statistics:
                 <ul>
 """
                 for failed in upload_summary['failed_files']:
-                    html_body += f"<li class='failed'>{failed['file']}: {failed['error']}</li>\n"
+                    escaped_file = html.escape(failed['file'])
+                    escaped_error = html.escape(failed['error'])
+                    html_body += f"<li class='failed'>{escaped_file}: {escaped_error}</li>\n"
                 html_body += """
                 </ul>
             </div>

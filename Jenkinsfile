@@ -39,6 +39,12 @@ pipeline {
                     if (!params.SMTP_SERVER) {
                         error("SMTP_SERVER parameter is required")
                     }
+                    if (!params.SMTP_USERNAME) {
+                        error("SMTP_USERNAME parameter is required")
+                    }
+                    if (!params.SMTP_PASSWORD) {
+                        error("SMTP_PASSWORD parameter is required")
+                    }
                     if (!params.AWS_ACCESS_KEY_ID || !params.AWS_SECRET_ACCESS_KEY) {
                         error("AWS credentials (ACCESS_KEY_ID and SECRET_ACCESS_KEY) are required")
                     }
@@ -71,7 +77,7 @@ pipeline {
                     echo "Extracting zip file: ${params.ZIP_FILE_PATH}"
                     sh """
                         mkdir -p ${EXTRACT_DIR}
-                        unzip -o ${params.ZIP_FILE_PATH} -d ${EXTRACT_DIR}
+                        unzip -o "${params.ZIP_FILE_PATH}" -d ${EXTRACT_DIR}
                         echo "Extraction completed successfully"
                         ls -la ${EXTRACT_DIR}
                     """
@@ -86,16 +92,16 @@ pipeline {
                     sh """
                         python3 ${PYTHON_SCRIPT} \
                             --source-dir ${EXTRACT_DIR} \
-                            --bucket ${params.S3_BUCKET} \
+                            --bucket "${params.S3_BUCKET}" \
                             --prefix "${params.S3_PREFIX}" \
-                            --provider ${params.CLOUD_PROVIDER} \
+                            --provider "${params.CLOUD_PROVIDER}" \
                             --endpoint "${params.S3_ENDPOINT}" \
-                            --region ${params.S3_REGION} \
+                            --region "${params.S3_REGION}" \
                             --access-key "${params.AWS_ACCESS_KEY_ID}" \
                             --secret-key "${params.AWS_SECRET_ACCESS_KEY}" \
                             --email-recipients "${params.EMAIL_RECIPIENTS}" \
-                            --smtp-server ${params.SMTP_SERVER} \
-                            --smtp-port ${params.SMTP_PORT} \
+                            --smtp-server "${params.SMTP_SERVER}" \
+                            --smtp-port "${params.SMTP_PORT}" \
                             --smtp-username "${params.SMTP_USERNAME}" \
                             --smtp-password "${params.SMTP_PASSWORD}"
                     """
@@ -116,39 +122,15 @@ pipeline {
                 // Send failure notification email if SMTP is configured
                 if (params.SMTP_SERVER && params.EMAIL_RECIPIENTS) {
                     sh """
-                        python3 -c "
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-try:
-    msg = MIMEMultipart()
-    msg['From'] = '${params.SMTP_USERNAME}'
-    msg['To'] = '${params.EMAIL_RECIPIENTS}'
-    msg['Subject'] = 'Jenkins OSS Upload Pipeline Failed'
-    
-    body = '''
-Jenkins Pipeline Failure Report
-
-Job: ${env.JOB_NAME}
-Build Number: ${env.BUILD_NUMBER}
-Build URL: ${env.BUILD_URL}
-
-The static resource upload pipeline has failed. Please check the Jenkins console output for details.
-'''
-    
-    msg.attach(MIMEText(body, 'plain'))
-    
-    server = smtplib.SMTP('${params.SMTP_SERVER}', ${params.SMTP_PORT})
-    server.starttls()
-    server.login('${params.SMTP_USERNAME}', '${params.SMTP_PASSWORD}')
-    server.send_message(msg)
-    server.quit()
-    
-    print('Failure notification email sent successfully')
-except Exception as e:
-    print(f'Failed to send email notification: {e}')
-"
+                        python3 send_failure_email.py \
+                            --smtp-server "${params.SMTP_SERVER}" \
+                            --smtp-port "${params.SMTP_PORT}" \
+                            --smtp-username "${params.SMTP_USERNAME}" \
+                            --smtp-password "${params.SMTP_PASSWORD}" \
+                            --recipients "${params.EMAIL_RECIPIENTS}" \
+                            --job-name "${env.JOB_NAME}" \
+                            --build-number "${env.BUILD_NUMBER}" \
+                            --build-url "${env.BUILD_URL}" || true
                     """
                 }
             }
