@@ -83,27 +83,22 @@ pipeline {
             steps {
                 script {
                     echo "Uploading files to ${params.CLOUD_PROVIDER} OSS..."
-                    withCredentials([
-                        string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID_CRED'),
-                        string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY_CRED')
-                    ]) {
-                        sh """
-                            python3 ${PYTHON_SCRIPT} \
-                                --source-dir ${EXTRACT_DIR} \
-                                --bucket ${params.S3_BUCKET} \
-                                --prefix "${params.S3_PREFIX}" \
-                                --provider ${params.CLOUD_PROVIDER} \
-                                --endpoint "${params.S3_ENDPOINT}" \
-                                --region ${params.S3_REGION} \
-                                --access-key \${AWS_ACCESS_KEY_ID_CRED:-${params.AWS_ACCESS_KEY_ID}} \
-                                --secret-key \${AWS_SECRET_ACCESS_KEY_CRED:-${params.AWS_SECRET_ACCESS_KEY}} \
-                                --email-recipients "${params.EMAIL_RECIPIENTS}" \
-                                --smtp-server ${params.SMTP_SERVER} \
-                                --smtp-port ${params.SMTP_PORT} \
-                                --smtp-username "${params.SMTP_USERNAME}" \
-                                --smtp-password "${params.SMTP_PASSWORD}"
-                        """
-                    }
+                    sh """
+                        python3 ${PYTHON_SCRIPT} \
+                            --source-dir ${EXTRACT_DIR} \
+                            --bucket ${params.S3_BUCKET} \
+                            --prefix "${params.S3_PREFIX}" \
+                            --provider ${params.CLOUD_PROVIDER} \
+                            --endpoint "${params.S3_ENDPOINT}" \
+                            --region ${params.S3_REGION} \
+                            --access-key "${params.AWS_ACCESS_KEY_ID}" \
+                            --secret-key "${params.AWS_SECRET_ACCESS_KEY}" \
+                            --email-recipients "${params.EMAIL_RECIPIENTS}" \
+                            --smtp-server ${params.SMTP_SERVER} \
+                            --smtp-port ${params.SMTP_PORT} \
+                            --smtp-username "${params.SMTP_USERNAME}" \
+                            --smtp-password "${params.SMTP_PASSWORD}"
+                    """
                 }
             }
         }
