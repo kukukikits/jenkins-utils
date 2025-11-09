@@ -19,7 +19,10 @@ jenkins-utils/
 ├── upload_to_oss.py         # Python上传脚本
 ├── requirements.txt         # Python依赖
 ├── .gitignore              # Git忽略文件配置
-└── README.md               # 项目文档
+├── README.md               # 项目文档
+├── QUICKSTART.md           # 快速入门指南
+├── config.example.env      # 配置示例文件
+└── test-setup.sh           # 本地测试脚本
 ```
 
 ## 快速开始
@@ -52,7 +55,13 @@ jenkins-utils/
    pip3 install -r requirements.txt
    ```
 
-3. **在Jenkins中创建Pipeline任务**:
+3. **测试本地环境**（可选）:
+   ```bash
+   ./test-setup.sh
+   ```
+   该脚本会自动检查环境并创建测试文件，便于本地测试上传功能。
+
+4. **在Jenkins中创建Pipeline任务**:
    - 新建Pipeline类型的任务
    - 在Pipeline配置中选择"Pipeline script from SCM"
    - 配置Git仓库地址
