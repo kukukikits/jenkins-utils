@@ -139,6 +139,7 @@ Thumbs.db
 
 # Jenkins workspace
 extracted_files/
+downloads/
 *.zip
 
 # Log files

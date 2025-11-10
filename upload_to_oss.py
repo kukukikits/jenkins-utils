@@ -10,6 +10,7 @@ Supports:
 - Alibaba Cloud OSS
 - Tencent Cloud COS
 - Other S3-compatible storage services
+- Download resources from URLs before uploading
 """
 
 import argparse
@@ -18,11 +19,14 @@ import sys
 import logging
 import smtplib
 import html
+import zipfile
+import mimetypes
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from typing import List, Dict, Any
+from urllib.parse import urlparse
 
 try:
     import boto3
@@ -30,6 +34,20 @@ try:
 except ImportError:
     print("Error: boto3 library is required. Install with: pip install boto3")
     sys.exit(1)
+
+try:
+    import requests
+except ImportError:
+    print("Error: requests library is required. Install with: pip install requests")
+    sys.exit(1)
+
+try:
+    import magic
+    HAS_MAGIC = True
+except ImportError:
+    HAS_MAGIC = False
+    logger = logging.getLogger(__name__)
+    logger.warning("python-magic not available. Falling back to mimetypes for content type detection.")
 
 
 # Configure logging
@@ -42,6 +60,112 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def download_file(url: str, dest_path: Path) -> bool:
+    """
+    Download a file from URL to local path
+    
+    Args:
+        url: URL to download from
+        dest_path: Local path to save the file
+        
+    Returns:
+        True if download successful, False otherwise
+    """
+    try:
+        logger.info(f"Downloading from: {url}")
+        response = requests.get(url, stream=True, timeout=300)
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        downloaded = 0
+        
+        with open(dest_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        progress = (downloaded / total_size) * 100
+                        if downloaded % (1024 * 1024) < 8192:  # Log every MB
+                            logger.info(f"Download progress: {progress:.1f}% ({downloaded}/{total_size} bytes)")
+        
+        logger.info(f"✓ Downloaded successfully: {dest_path} ({downloaded} bytes)")
+        return True
+    except Exception as e:
+        logger.error(f"✗ Failed to download {url}: {e}")
+        return False
+
+
+def extract_zip(zip_path: Path, extract_dir: Path) -> bool:
+    """
+    Extract a zip file to a directory
+    
+    Args:
+        zip_path: Path to the zip file
+        extract_dir: Directory to extract to
+        
+    Returns:
+        True if extraction successful, False otherwise
+    """
+    try:
+        logger.info(f"Extracting: {zip_path} -> {extract_dir}")
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+        
+        file_count = len(list(extract_dir.rglob('*')))
+        logger.info(f"✓ Extracted {file_count} items successfully")
+        return True
+    except Exception as e:
+        logger.error(f"✗ Failed to extract {zip_path}: {e}")
+        return False
+
+
+def download_and_extract_resources(urls: List[str], download_dir: Path, extract_dir: Path) -> bool:
+    """
+    Download zip files from URLs and extract them
+    
+    Args:
+        urls: List of URLs to download
+        download_dir: Directory to download files to
+        extract_dir: Directory to extract files to
+        
+    Returns:
+        True if all downloads and extractions successful, False otherwise
+    """
+    download_dir.mkdir(parents=True, exist_ok=True)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    
+    all_success = True
+    
+    for idx, url in enumerate(urls, 1):
+        logger.info(f"\n[{idx}/{len(urls)}] Processing URL: {url}")
+        
+        # Determine filename from URL
+        parsed_url = urlparse(url)
+        filename = Path(parsed_url.path).name
+        if not filename:
+            filename = f"download_{idx}.zip"
+        
+        if not filename.endswith('.zip'):
+            filename += '.zip'
+        
+        download_path = download_dir / filename
+        
+        # Download the file
+        if not download_file(url, download_path):
+            all_success = False
+            continue
+        
+        # Extract the file
+        if not extract_zip(download_path, extract_dir):
+            all_success = False
+            continue
+    
+    return all_success
 
 
 class OSSUploader:
@@ -181,18 +305,43 @@ class OSSUploader:
     
     @staticmethod
     def _get_content_type(file_path: Path) -> str:
-        """Determine content type based on file extension"""
+        """
+        Determine content type using python-magic (if available) or mimetypes
+        
+        This provides robust content type detection for production use.
+        Falls back to mimetypes library if python-magic is not available.
+        """
+        content_type = ''
+        
+        # Try python-magic first (most accurate)
+        if HAS_MAGIC:
+            try:
+                mime = magic.Magic(mime=True)
+                content_type = mime.from_file(str(file_path))
+                if content_type:
+                    return content_type
+            except Exception as e:
+                logger.debug(f"python-magic failed for {file_path}: {e}")
+        
+        # Fall back to mimetypes (reliable, less accurate)
+        content_type, _ = mimetypes.guess_type(str(file_path))
+        if content_type:
+            return content_type
+        
+        # Last resort: basic extension mapping for common web assets
         extension_map = {
             '.html': 'text/html',
             '.htm': 'text/html',
             '.css': 'text/css',
             '.js': 'application/javascript',
+            '.mjs': 'application/javascript',
             '.json': 'application/json',
             '.xml': 'application/xml',
             '.png': 'image/png',
             '.jpg': 'image/jpeg',
             '.jpeg': 'image/jpeg',
             '.gif': 'image/gif',
+            '.webp': 'image/webp',
             '.svg': 'image/svg+xml',
             '.ico': 'image/x-icon',
             '.pdf': 'application/pdf',
@@ -200,9 +349,17 @@ class OSSUploader:
             '.woff': 'font/woff',
             '.woff2': 'font/woff2',
             '.ttf': 'font/ttf',
+            '.otf': 'font/otf',
             '.eot': 'application/vnd.ms-fontobject',
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav',
+            '.zip': 'application/zip',
+            '.tar': 'application/x-tar',
+            '.gz': 'application/gzip',
         }
-        return extension_map.get(file_path.suffix.lower(), '')
+        return extension_map.get(file_path.suffix.lower(), 'application/octet-stream')
     
     @staticmethod
     def _format_size(size_bytes: int) -> str:
@@ -398,8 +555,12 @@ def main():
         description='Upload static resources to S3-compatible OSS and send email notification'
     )
     
+    # Resource source parameters - support both URLs and local directory
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument('--source-dir', help='Source directory to upload (local files)')
+    source_group.add_argument('--download-urls', help='Comma-separated URLs to download and extract before uploading')
+    
     # Upload parameters
-    parser.add_argument('--source-dir', required=True, help='Source directory to upload')
     parser.add_argument('--bucket', required=True, help='S3 bucket name')
     parser.add_argument('--prefix', default='', help='S3 prefix/folder path')
     parser.add_argument('--provider', required=True, choices=['aws', 'aliyun', 'tencent'],
@@ -417,10 +578,44 @@ def main():
     parser.add_argument('--smtp-username', required=True, help='SMTP username')
     parser.add_argument('--smtp-password', required=True, help='SMTP password')
     
+    # Working directory parameters
+    parser.add_argument('--download-dir', default='downloads', help='Directory for downloaded files')
+    parser.add_argument('--extract-dir', default='extracted_files', help='Directory for extracted files')
+    
     args = parser.parse_args()
     
     try:
+        # Determine source directory
+        source_dir = args.source_dir
+        
+        # If URLs are provided, download and extract them first
+        if args.download_urls:
+            logger.info("=" * 60)
+            logger.info("DOWNLOADING AND EXTRACTING RESOURCES")
+            logger.info("=" * 60)
+            
+            urls = [url.strip() for url in args.download_urls.split(',') if url.strip()]
+            if not urls:
+                logger.error("No valid URLs provided")
+                sys.exit(1)
+            
+            logger.info(f"Processing {len(urls)} URL(s)")
+            
+            download_dir = Path(args.download_dir)
+            extract_dir = Path(args.extract_dir)
+            
+            if not download_and_extract_resources(urls, download_dir, extract_dir):
+                logger.error("Failed to download and extract all resources")
+                sys.exit(1)
+            
+            source_dir = str(extract_dir)
+            logger.info(f"✓ All resources downloaded and extracted to: {source_dir}")
+        
         # Initialize uploader
+        logger.info("\n" + "=" * 60)
+        logger.info("UPLOADING TO OSS")
+        logger.info("=" * 60)
+        
         uploader = OSSUploader(
             provider=args.provider,
             bucket=args.bucket,

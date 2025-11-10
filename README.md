@@ -73,11 +73,12 @@ jenkins-utils/
 
 | 参数名称 | 类型 | 必填 | 说明 |
 |---------|------|------|------|
-| ZIP_FILE_PATH | String | ✓ | 静态资源zip文件的完整路径 |
+| DOWNLOAD_URLS | Text | * | 下载zip文件的URL列表（多个URL用逗号分隔）|
+| ZIP_FILE_PATH | String | * | 本地zip文件路径（仅在DOWNLOAD_URLS为空时使用） |
 | S3_BUCKET | String | ✓ | S3存储桶名称 |
 | S3_PREFIX | String |  | S3路径前缀（文件夹路径） |
 | CLOUD_PROVIDER | Choice | ✓ | 云服务提供商（aws/aliyun/tencent） |
-| S3_ENDPOINT | String | * | S3端点URL（阿里云和腾讯云必填） |
+| S3_ENDPOINT | String | ** | S3端点URL（阿里云和腾讯云必填） |
 | S3_REGION | String | ✓ | S3区域（默认：us-east-1） |
 | EMAIL_RECIPIENTS | String | ✓ | 邮件接收人（多个用逗号分隔） |
 | SMTP_SERVER | String | ✓ | SMTP服务器地址 |
@@ -87,7 +88,20 @@ jenkins-utils/
 | AWS_ACCESS_KEY_ID | Password | ✓ | 访问密钥ID |
 | AWS_SECRET_ACCESS_KEY | Password | ✓ | 访问密钥 |
 
-\* S3_ENDPOINT 对于非AWS云服务商是必填的
+\* DOWNLOAD_URLS 和 ZIP_FILE_PATH 二选一，优先使用 DOWNLOAD_URLS  
+\*\* S3_ENDPOINT 对于非AWS云服务商是必填的
+
+#### 资源来源模式
+
+**模式1：URL下载模式（推荐）**
+- 在DOWNLOAD_URLS参数中输入一个或多个zip文件的URL（用逗号分隔）
+- 流水线会自动下载、解压并上传所有资源
+- 示例：`https://example.com/static-v1.zip,https://example.com/static-v2.zip`
+
+**模式2：本地文件模式**
+- 在ZIP_FILE_PATH参数中输入本地zip文件的完整路径
+- 流水线会解压并上传该文件
+- 仅在DOWNLOAD_URLS为空时使用
 
 #### 云服务商端点配置示例
 
@@ -111,14 +125,48 @@ Region: us-east-1
 
 ### 使用方法
 
-#### 方式1: 在Jenkins UI中触发
+#### 方式1: 在Jenkins UI中触发（URL下载模式）
 
 1. 打开Jenkins Pipeline任务
 2. 点击"Build with Parameters"
-3. 填写所有必要参数
-4. 点击"Build"开始构建
+3. 在DOWNLOAD_URLS参数中输入zip文件的URL（多个URL用逗号分隔）
+4. 填写其他必要参数（留空ZIP_FILE_PATH）
+5. 点击"Build"开始构建
 
-#### 方式2: 命令行直接执行Python脚本
+**示例URL参数：**
+```
+https://cdn.example.com/releases/website-v1.0.0.zip,https://cdn.example.com/releases/assets-v1.0.0.zip
+```
+
+#### 方式2: 在Jenkins UI中触发（本地文件模式）
+
+1. 打开Jenkins Pipeline任务
+2. 点击"Build with Parameters"
+3. 留空DOWNLOAD_URLS参数
+4. 在ZIP_FILE_PATH参数中输入本地zip文件路径
+5. 填写其他必要参数
+6. 点击"Build"开始构建
+
+#### 方式3: 命令行执行（URL下载模式）
+
+```bash
+python3 upload_to_oss.py \
+  --download-urls "https://cdn.example.com/static-v1.zip,https://cdn.example.com/static-v2.zip" \
+  --bucket my-bucket \
+  --prefix static/v1.0 \
+  --provider aliyun \
+  --endpoint https://oss-cn-hangzhou.aliyuncs.com \
+  --region cn-hangzhou \
+  --access-key YOUR_ACCESS_KEY \
+  --secret-key YOUR_SECRET_KEY \
+  --email-recipients admin@example.com,dev@example.com \
+  --smtp-server smtp.gmail.com \
+  --smtp-port 587 \
+  --smtp-username your-email@gmail.com \
+  --smtp-password your-password
+```
+
+#### 方式4: 命令行执行（本地目录模式）
 
 ```bash
 python3 upload_to_oss.py \
@@ -139,6 +187,7 @@ python3 upload_to_oss.py \
 
 ## 工作流程
 
+### URL下载模式
 ```
 ┌─────────────────┐
 │  触发Pipeline    │
@@ -152,6 +201,11 @@ python3 upload_to_oss.py \
          ▼
 ┌─────────────────┐
 │  安装Python依赖  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ 下载ZIP文件(URL)│
 └────────┬────────┘
          │
          ▼
